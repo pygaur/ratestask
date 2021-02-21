@@ -31,6 +31,8 @@ class Port(models.Model):
 
 
 class Price(models.Model):
+    """
+    """
     orig_code = models.ForeignKey(Port, models.DO_NOTHING,
                                   related_name='orig_code',
                                   max_length=5, db_column='orig_code')
