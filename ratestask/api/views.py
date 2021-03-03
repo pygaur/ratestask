@@ -1,20 +1,108 @@
 """
 """
+import logging
+from datetime import datetime
+
 from django.db.models import Avg, Count, Q
-from django.db.models.functions import Round
 from django.db import connection
 
-from .serializers import RateSerializer
+from .serializers import RateListSerializer,\
+    RateCreateSerializer
 
-from core.models import Price
+from core.models import Price, Port
+from core.utils import exchange_rates
+from .query import rate_list_query, port_check_query, price_insert_query
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework import status
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 class RateList(APIView):
     """
     """
+    null_rates = False
+
+    def post(self, request, *args, **kwargs):
+        """
+        :param request:
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        serializer = RateCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors,
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.data
+
+        date_from = data['date_from']
+        date_to = data['date_to']
+        prices = data['prices']
+        origin_code = data['origin_code']
+        destination_code = data['destination_code']
+
+        currency_code = data.get('currency_code')
+
+        if date_from != date_to:
+            date_range = pd.date_range(start=date_from,
+                                       end=date_to).date.tolist()
+        else:
+            date_range = [datetime.strptime(date_to, "%Y-%m-%d")]
+
+        if len(date_range) != len(prices):
+            response = {'error_message': "price and generated date"
+                                         "length does not match"}
+            return Response(response,
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(port_check_query, (origin_code, destination_code))
+                result = cursor.fetchall()
+
+                if len(result) != 2:
+                    response = {"error_message": "One of the port does not exist"}
+                    return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+                for day, price in zip(date_range, prices):
+
+                    if currency_code:
+                        price = exchange_rates(price, currency_code)
+
+                    cursor.execute(price_insert_query,
+                                   (origin_code, destination_code, day, price))
+                return Response("Successful data upload.",
+                                status=status.HTTP_201_CREATED)
+        except Exception as exc:
+            logger.error(str(exc))
+            response = {"error_message": "Failed data upload."}
+            return Response(response, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    @staticmethod
+    def filtered_result(result, null_rates):
+        """
+        :param result:
+        :param null_rates:
+        :return:
+        """
+        response = []
+
+        for rate in result:
+
+            if null_rates and rate[2] < 3:
+                average_price = None
+            else:
+                average_price = rate[1]
+            response.append({'day': rate[0],
+                             'average_price': average_price})
+        return response
+
     def get(self, request, *args, **kwargs):
         """
         :param request:
@@ -22,55 +110,47 @@ class RateList(APIView):
         :param kwargs:
         :return:
         """
-        serializer = RateSerializer(data=request.query_params)
+        serializer = RateListSerializer(data=request.query_params)
 
-        if serializer.is_valid():
+        if not serializer.is_valid():
+            return Response(serializer.errors,
+                            status=status.HTTP_400_BAD_REQUEST)
 
-            data = serializer.validated_data
+        data = serializer.validated_data
 
-            date_from = data['date_from']
-            date_to = data['date_to']
-            origin = data['origin']
-            destination = data['destination']
+        date_from = data['date_from']
+        date_to = data['date_to']
+        origin = data['origin']
+        destination = data['destination']
 
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(rate_list_query, (origin, origin, destination,
+                                                 destination, date_from,
+                                                 date_to))
+                result = cursor.fetchall()
+                response = RateList.filtered_result(result, self.null_rates)
+                return Response(response, status.HTTP_200_OK)
+        except Exception as exc:
+            logger.error(str(exc))
+            response = {"error_message": "Internal Server Error."}
+            return Response(response, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        """
+        # ORM QUERY
+        try:
             orig_code_lookup = Q(orig_code=origin) | Q(orig_code__region=origin)
             dest_code_lookup = Q(dest_code=destination) | Q(dest_code__region=destination)
 
-            """ SQL Query 1 """
-            with connection.cursor() as cursor:
-                query = """
-                        SELECT "prices"."day", ROUND(AVG("prices"."price"),2)
-                            AS "total" FROM "prices"
-                        INNER JOIN "ports" ON ("prices"."orig_code" =
-                            "ports"."code")
-                        INNER JOIN "ports" T4 ON ("prices"."dest_code" =
-                            T4."code")
-                        WHERE (("prices"."orig_code" = %s)
-                                        OR
-                            ("ports"."parent_slug" = %s))
-                        AND
-                            (("prices"."dest_code" = %s
-                                    OR
-                            (T4."parent_slug" = %s)) 
-                        AND "prices"."day" BETWEEN %s::date AND %s::date)
-                        GROUP BY "prices"."day"
-                        """
-                cursor.execute(query, (origin, origin, destination, destination, date_from, date_to))
-                result = cursor.fetchall()
-                return Response(result)
-
-
-            # Django ORM way
             prices = Price.objects.\
                 filter(orig_code_lookup, dest_code_lookup,
                        day__gte=date_from, day__lte=date_to)\
                 .values('day',)\
                 .annotate(total=Avg('price'),
-                          count=Count('price')
-                          )\
-                .order_by()
-
+                          times=Count('price')
+                          )
             return Response(prices)
-
-        return Response(serializer.errors)
-
+        except Exception as exc:
+            logger.error(str(exc))
+            response = {"error_message": "Something went wrong."}
+            return Response(response, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        """
