@@ -3,15 +3,12 @@
 import logging
 from datetime import datetime
 
-from django.db.models import Avg, Count, Q
 from django.db import connection
 
-from .serializers import RateListSerializer,\
+from api.serializers import RateListSerializer,\
     RateCreateSerializer
-
-from core.models import Price, Port
+from api.query import rate_list_query, port_check_query, price_insert_query
 from core.utils import exchange_rates
-from .query import rate_list_query, port_check_query, price_insert_query
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -29,6 +26,14 @@ class RateList(APIView):
 
     def post(self, request, *args, **kwargs):
         """
+        Implement an API endpoint where you can upload a price,
+        including the following parameters:
+            date_from
+            date_to
+            origin_code,
+            destination_code
+            price
+            currency_code  ( OPTIONAL)
         :param request:
         :param args:
         :param kwargs:
@@ -36,7 +41,8 @@ class RateList(APIView):
         """
         serializer = RateCreateSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors,
+            response = {'error_message': serializer.errors}
+            return Response(response,
                             status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.data
@@ -57,7 +63,7 @@ class RateList(APIView):
 
         if len(date_range) != len(prices):
             response = {'error_message': "price and generated date"
-                                         "length does not match"}
+                                         "length does not match."}
             return Response(response,
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -65,16 +71,13 @@ class RateList(APIView):
             with connection.cursor() as cursor:
                 cursor.execute(port_check_query, (origin_code, destination_code))
                 result = cursor.fetchall()
-
                 if len(result) != 2:
-                    response = {"error_message": "One of the port does not exist"}
+                    response = {"error_message": "One of the port does not exist."}
                     return Response(response, status=status.HTTP_400_BAD_REQUEST)
 
                 for day, price in zip(date_range, prices):
-
                     if currency_code:
                         price = exchange_rates(price, currency_code)
-
                     cursor.execute(price_insert_query,
                                    (origin_code, destination_code, day, price))
                 return Response("Successful data upload.",
@@ -92,9 +95,7 @@ class RateList(APIView):
         :return:
         """
         response = []
-
         for rate in result:
-
             if null_rates and rate[2] < 3:
                 average_price = None
             else:
@@ -105,6 +106,14 @@ class RateList(APIView):
 
     def get(self, request, *args, **kwargs):
         """
+        Implement an API endpoint that takes the following parameters:
+
+            date_from
+            date_to
+            origin
+            destination
+        and returns a list with the average prices for each day
+        on a route between port codes origin and destination.
         :param request:
         :param args:
         :param kwargs:
@@ -113,7 +122,8 @@ class RateList(APIView):
         serializer = RateListSerializer(data=request.query_params)
 
         if not serializer.is_valid():
-            return Response(serializer.errors,
+            response = {'error_message': serializer.errors}
+            return Response(response,
                             status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.validated_data
@@ -137,6 +147,9 @@ class RateList(APIView):
             return Response(response, status.HTTP_500_INTERNAL_SERVER_ERROR)
         """
         # ORM QUERY
+        from django.db.models import Avg, Count, Q
+        from core.models import Price, Port
+        from core.models import Price
         try:
             orig_code_lookup = Q(orig_code=origin) | Q(orig_code__region=origin)
             dest_code_lookup = Q(dest_code=destination) | Q(dest_code__region=destination)

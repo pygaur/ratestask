@@ -129,5 +129,5 @@ USE_TZ = True
 STATIC_URL = '/static/'
 
 
-EXCHANGE_RATE_APP_ID = 'aff105715acd44aa9976ec7611ca814e'
+EXCHANGE_RATE_APP_ID = os.getenv('EXCHANGE_RATE_APP_ID')
 EXCHANGE_RATE_URL = 'https://openexchangerates.org/api/latest.json'

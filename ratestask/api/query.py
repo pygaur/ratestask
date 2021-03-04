@@ -1,3 +1,7 @@
+"""
+"""
+
+
 rate_list_query = """
     SELECT "prices"."day", ROUND(AVG("prices"."price"),2)
         AS "total", COUNT(price) AS "times" FROM "prices"
@@ -16,9 +20,11 @@ rate_list_query = """
     GROUP BY "prices"."day"
         """
 
+
 port_check_query = """
     select code from ports where code=(%s) or code=(%s) limit 2
 """
+
 
 price_insert_query = """
     insert into prices (orig_code, dest_code, day, price) values (%s, %s, %s, %s)
