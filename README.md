@@ -1,12 +1,15 @@
 # ratestask
 
-## To install dependencies
+**Steps**
 
-`pip install requirements/dev.txt`
+1. Create a `Python 3.7` virtualenv and activate it.
+2. Clone the repository -: `git clone https://github.com/pygaur/ratestask.git`
+3. `cd` to App -: `cd ratestask/ratestask`
+5. Install dependencies :- `pip install requirements/dev.txt`
+6. create database in postgres.
+7. migrate your models - `python manage.py migrate`
+8. run server `python manage.py runserver`
 
-## To start server
-
-`python manage.py runserver`
 
 ## Total time spent
 
