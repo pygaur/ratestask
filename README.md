@@ -26,3 +26,6 @@ With above approach i am providing -
 
 **Tech Stack** :- Flask , celery , rabbitmq , postgres, redis. 
 
+**NOTE**
+
+Have not written unit test cases for this app due to time constraint. 
